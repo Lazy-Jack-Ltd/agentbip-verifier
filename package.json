@@ -21,6 +21,6 @@
     "url": "https://github.com/Lazy-Jack-Ltd/agentbip-verifier"
   },
   "scripts": {
-    "test": "node --test test/"
+    "test": "node --test"
   }
 }
