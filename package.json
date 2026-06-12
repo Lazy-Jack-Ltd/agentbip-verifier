@@ -1,0 +1,11 @@
+{
+  "name": "@lazyjackorg/agentbip-verifier",
+  "version": "0.1.0",
+  "description": "Independent verifier for the AgentBip research-record anchor chain on XRPL (agentbip-anchor-v1). Zero runtime dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "bin": { "agentbip-verify": "bin/agentbip-verify.mjs" },
+  "engines": { "node": ">=20" },
+  "files": ["bin/", "README.md"],
+  "repository": { "type": "git", "url": "https://github.com/Lazy-Jack-Ltd/agentbip-verifier" }
+}
