@@ -18,7 +18,6 @@
   .pass { color: #057a55; } .failv { color: #c81e1e; }
   .caveat { background: #fdf6b2; border-radius: 8px; padding: .8rem 1rem; font-size: .92rem; }
   .pin { font-family: ui-monospace, monospace; font-size: .85rem; background: #f3f4f6; padding: .6rem .8rem; border-radius: 8px; word-break: break-all; }
-  #drop { border: 2px dashed #bbb; border-radius: 8px; padding: 1rem; margin-top: 1rem; color: #555; }
 </style>
 </head>
 <body>
@@ -31,7 +30,6 @@ Announced before genesis · cross-announced by <a href="https://github.com/Lazy-
 <div id="stages"></div>
 <div id="verdict"></div>
 <div class="caveat">A PASS proves record <b>integrity + timing</b>: each entry existed at its ledger timestamp, and nothing was rewritten or omitted since. It does <b>not</b> prove trades were real-money fills — paper records remain paper, and broker statements remain the ground truth for money moved.</div>
-<div id="drop"><b>You don't need this box.</b> The button above already runs the complete check — it automatically downloads AgentBip's public record files and re-checks every fingerprint against the XRP Ledger.<br><br>Advanced (for due diligence): if AgentBip handed you record files directly, drop them here <input type="file" id="files" multiple> and press Verify again — your browser will then check <i>your copies</i> instead of the public archive.</div>
 <script>
 const PIN = { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://xrplcluster.com' }; // CORS-enabled full-history cluster
 const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witnesses/'; // public witnesses (spec G2)
@@ -57,9 +55,6 @@ const linesSha256 = (lines) => sha256(lines.map(l => l + '\n').join(''));
 const hexToUtf8 = (hex) => new TextDecoder().decode(new Uint8Array(hex.match(/../g).map(h => parseInt(h, 16))));
 
 const witnessByName = {}; // filename -> Uint8Array bytes
-document.getElementById('files').addEventListener('change', async (e) => { for (const f of e.target.files) witnessByName[f.name] = new Uint8Array(await f.arrayBuffer()); document.getElementById('drop').firstChild.textContent = Object.keys(witnessByName).length + ' witness file(s) loaded. '; });
-document.getElementById('drop').addEventListener('dragover', e => e.preventDefault());
-document.getElementById('drop').addEventListener('drop', async (e) => { e.preventDefault(); for (const f of e.dataTransfer.files) witnessByName[f.name] = new Uint8Array(await f.arrayBuffer()); document.getElementById('drop').firstChild.textContent = Object.keys(witnessByName).length + ' witness file(s) loaded. '; });
 
 const stageEl = document.getElementById('stages');
 function stage(name, ok, detail, skip) {
