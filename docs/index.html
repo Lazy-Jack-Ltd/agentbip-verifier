@@ -31,7 +31,7 @@ Announced before genesis · cross-announced by <a href="https://github.com/Lazy-
 <div id="stages"></div>
 <div id="verdict"></div>
 <div class="caveat">A PASS proves record <b>integrity + timing</b>: each entry existed at its ledger timestamp, and nothing was rewritten or omitted since. It does <b>not</b> prove trades were real-money fills — paper records remain paper, and broker statements remain the ground truth for money moved.</div>
-<div id="drop">Witnesses are fetched automatically from the public archive — the button above runs the FULL check. To verify privately-shared files instead, drop them here (or <input type="file" id="files" multiple>) then press Verify again — your browser will recompute every hash and replay the whole record from genesis.</div>
+<div id="drop"><b>You don't need this box.</b> The button above already runs the complete check — it automatically downloads AgentBip's public record files and re-checks every fingerprint against the XRP Ledger.<br><br>Advanced (for due diligence): if AgentBip handed you record files directly, drop them here <input type="file" id="files" multiple> and press Verify again — your browser will then check <i>your copies</i> instead of the public archive.</div>
 <script>
 const PIN = { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://xrplcluster.com' }; // CORS-enabled full-history cluster
 const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witnesses/'; // public witnesses (spec G2)
