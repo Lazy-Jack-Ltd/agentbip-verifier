@@ -25,6 +25,7 @@
 <h1>AgentBip research-record verifier</h1>
 <p class="sub">Independently verifies the AgentBip anchor chain on the public XRP Ledger. No login, no trust in AgentBip's servers — your browser fetches the ledger and re-does the math.</p>
 <p class="pin">Pinned anchor account (mainnet): <b>rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP</b><br>
+<a href="https://livenet.xrpl.org/accounts/rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP"><b>View the raw anchors on the XRP Ledger →</b></a><br>
 Announced before genesis · cross-announced by <a href="https://github.com/Lazy-Jack-Ltd/bipcircle-verifier">bipcircle-verifier</a> · source: <a href="https://github.com/Lazy-Jack-Ltd/agentbip-verifier">agentbip-verifier</a></p>
 <p><button id="run">Verify the record now</button></p>
 <div id="stages"></div>
@@ -102,6 +103,9 @@ document.getElementById('run').onclick = async () => {
       else if (anchors[i].memo.prev !== anchors[i - 1].hash) { ok = false; why = 'hash-chain break at ' + i; }
     }
     if (!stage('Anchor chain unbroken (sequence + hash links)', ok, why || ('seq 0–' + (anchors.length - 1)))) return finish(false);
+    { const d = document.createElement('div'); d.className = 'stage';
+      d.innerHTML = '🔗 ' + anchors.map(a => '<a href="https://livenet.xrpl.org/transactions/' + a.hash + '" target="_blank" rel="noopener">anchor ' + a.memo.seq + ' (' + a.memo.type + ', ' + a.memo.date + ')</a>').join(' · ');
+      stageEl.appendChild(d); }
     const regs = anchors.filter(a => a.memo.type === 'registration');
     stage('Pre-registered strategies committed on-chain', true, regs.length + ' registration(s)' + (regs.length ? ': ' + regs.map(r => '#' + r.memo.hypothesisId + '@' + (r.memo.configHash || '').slice(0, 6)).join(', ') : ' yet'));
     // 3-7. content: dropped files take priority; otherwise AUTO-FETCH from the public witness URL
