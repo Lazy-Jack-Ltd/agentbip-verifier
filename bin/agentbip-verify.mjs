@@ -9,7 +9,7 @@
  * not user input, so a social-engineered address cannot produce a false PASS.
  *
  *   agentbip-verify [--network testnet|mainnet] [--witness-dir <path>]
- *                   [--json] [--from-seq N]
+ *                   [--json] [--chain-only]
  *
  * Exit: 0 = PASS, 1 = FAIL, 2 = invocation error.
  *
@@ -21,7 +21,6 @@
  *              statements remain the ground truth for money moved; this chain proves the books
  *              match what was claimed in real time.
  */
-import { createHash } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -36,21 +35,7 @@ const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witn
 const MEMO_TYPE_HEX = Buffer.from('agentbip/anchor/v1', 'utf8').toString('hex').toUpperCase();
 const VERSION = 'agentbip-anchor-v1';
 
-// ---- spec-normative crypto (mirrors agent/src/anchor-core.ts; vectors in test/) ----
-const sha256hex = (s) => createHash('sha256').update(s).digest('hex');
-function merkleRoot(leaves) {
-  if (leaves.length === 0) return sha256hex('');
-  let level = leaves.map((l) => createHash('sha256').update(Buffer.concat([Buffer.from([0]), Buffer.from(l, 'utf8')])).digest());
-  while (level.length > 1) {
-    const next = [];
-    for (let i = 0; i + 1 < level.length; i += 2) next.push(createHash('sha256').update(Buffer.concat([Buffer.from([1]), level[i], level[i + 1]])).digest());
-    if (level.length % 2 === 1) next.push(level[level.length - 1]);
-    level = next;
-  }
-  return level[0].toString('hex');
-}
-const witnessLeaves = (newLines) => Object.keys(newLines).sort().flatMap((p) => newLines[p]);
-const linesSha256 = (lines) => sha256hex(lines.map((l) => l + '\n').join(''));
+import { merkleRoot, witnessLeaves, linesSha256, sha256hex } from '../lib/crypto.mjs';
 function canonicalJson(v) {
   const sort = (x) => Array.isArray(x) ? x.map(sort) : (x !== null && typeof x === 'object')
     ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, sort(x[k])])) : x;
@@ -100,7 +85,11 @@ async function main() {
   const witnessDir = arg('--witness-dir');
   const pin = PINNED[network];
   if (!pin) { console.error(`unknown network ${network}`); process.exit(2); }
-  const address = arg('--unsafe-address') ?? pin.address; // unsafe override for pre-release tracking
+  const address = arg('--unsafe-address') ?? pin.address; // unsafe override (testnet/migration use)
+  if (arg('--unsafe-address') && network === 'mainnet' && !argv.includes('--i-accept-unpinned-address')) {
+    console.error('mainnet with --unsafe-address additionally requires --i-accept-unpinned-address (a PASS would bind to an address YOU chose, not the pinned trust root)');
+    process.exit(2);
+  }
   if (!address) { console.error(`no pinned address for ${network} yet — pass --unsafe-address (clearly UNSAFE: you are trusting the address you supply)`); process.exit(2); }
   if (arg('--unsafe-address')) console.log('!! UNSAFE: address supplied by caller, not pinned in source — a PASS binds only to THAT address.\n');
 
