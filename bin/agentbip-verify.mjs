@@ -26,21 +26,17 @@ import { join } from 'node:path';
 
 // ---- pinned trust roots (per release; never user input) ----
 const PINNED = {
-  // TESTNET pilot chain (2026-06). Mainnet address lands here at the mainnet genesis release.
-  testnet: { address: 'rwWsxUpjEutLmvsG9VUtpS2EksVk8MGeJd', rpc: 'https://s.altnet.rippletest.net:51234' }, // pilot chain, genesis 2026-06-12
-  // s2.ripple.com is a FULL-HISTORY public cluster — required: pruned nodes can hide old anchors.
-  mainnet: { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://s2.ripple.com:51234' }, // PRE-PINNED 2026-06-12 BEFORE genesis (G1: address committed before any outcome)
+  // TESTNET pilot chain (2026-06). Witnesses NOT publicly archived (pilot) — use --witness-dir or --chain-only.
+  testnet: { address: 'rwWsxUpjEutLmvsG9VUtpS2EksVk8MGeJd', rpcs: ['https://s.altnet.rippletest.net:51234'] },
+  // TWO independent FULL-HISTORY endpoints, cross-checkedevery run (split-view mitigation): a single
+  // lying/pruned RPC could serve a stale prefix 0..K and continuity would still pass.
+  mainnet: { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpcs: ['https://s2.ripple.com:51234', 'https://xrplcluster.com'] }, // PRE-PINNED 2026-06-12 BEFORE genesis
 };
 const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witnesses/'; // public, CORS GET, create-only immutable
 const MEMO_TYPE_HEX = Buffer.from('agentbip/anchor/v1', 'utf8').toString('hex').toUpperCase();
 const VERSION = 'agentbip-anchor-v1';
 
 import { merkleRoot, witnessLeaves, linesSha256, sha256hex } from '../lib/crypto.mjs';
-function canonicalJson(v) {
-  const sort = (x) => Array.isArray(x) ? x.map(sort) : (x !== null && typeof x === 'object')
-    ? Object.fromEntries(Object.keys(x).sort().map((k) => [k, sort(x[k])])) : x;
-  return JSON.stringify(sort(v));
-}
 
 // ---- XRPL fetch (raw JSON-RPC; full pagination) ----
 async function rpc(url, method, params) {
@@ -66,7 +62,7 @@ async function fetchAnchors(rpcUrl, address) {
       if ((m.Memo?.MemoType ?? '').toUpperCase() !== MEMO_TYPE_HEX) continue;
       try {
         const memo = JSON.parse(Buffer.from(m.Memo.MemoData, 'hex').toString('utf8'));
-        if (memo.v === VERSION) anchors.push({ memo, hash: tx.hash ?? entry.hash, date: tx.date, validated: entry.validated !== false });
+        if (memo.v === VERSION) { if (entry.validated === false) throw new Error(`anchor ${tx.hash ?? entry.hash} is NOT in a validated ledger`); anchors.push({ memo, hash: tx.hash ?? entry.hash, date: tx.date }); }
       } catch { /* not ours */ }
     }
   }
@@ -80,7 +76,7 @@ const stage = (name, ok, detail) => { out.stages.push({ name, ok, detail }); con
 async function main() {
   const argv = process.argv.slice(2);
   const arg = (f) => { const i = argv.indexOf(f); return i >= 0 ? argv[i + 1] : undefined; };
-  const network = arg('--network') ?? 'testnet';
+  const network = arg('--network') ?? 'mainnet'; // mainnet is the live chain; a first run must verify the real record
   const json = argv.includes('--json');
   const witnessDir = arg('--witness-dir');
   const pin = PINNED[network];
@@ -94,10 +90,28 @@ async function main() {
   if (arg('--unsafe-address')) console.log('!! UNSAFE: address supplied by caller, not pinned in source — a PASS binds only to THAT address.\n');
 
   console.log(`agentbip-verify — network=${network} address=${address}\n`);
+  out.unsafe = Boolean(arg('--unsafe-address'));
 
-  // 1. fetch
-  const anchors = await fetchAnchors(pin.rpc, address);
-  if (!stage('fetch anchors (full-history node)', anchors.length > 0, `${anchors.length} anchor tx(s)`)) return finish(1, json);
+  // 1. fetch from the primary pinned full-history endpoint, cross-check the tip against the
+  // second (split-view mitigation: one lying/pruned node could withhold the newest anchors).
+  const anchors = await fetchAnchors(pin.rpcs[0], address);
+  if (!stage('fetch anchors (full-history node)', anchors.length > 0, `${anchors.length} anchor tx(s) via ${new URL(pin.rpcs[0]).host}`)) return finish(1, json);
+  if (pin.rpcs[1]) {
+    try {
+      const second = await fetchAnchors(pin.rpcs[1], address);
+      const tip = (a) => a.length ? a.reduce((m, x) => (x.memo.seq > m.memo.seq ? x : m)).hash : 'none';
+      if (!stage('independent endpoint cross-check (split-view)', second.length === anchors.length && tip(second) === tip(anchors), `${new URL(pin.rpcs[1]).host}: ${second.length} anchor(s), tip ${tip(second) === tip(anchors) ? 'matches' : 'DIFFERS — one endpoint is lying or stale'}`)) return finish(1, json);
+    } catch (e) {
+      stage('independent endpoint cross-check (split-view)', true, `SKIPPED — ${new URL(pin.rpcs[1]).host} unreachable (${e.message}); single-endpoint result`);
+    }
+  }
+  // tip age: a human must notice a stale chain even when continuity passes
+  const RIPPLE_EPOCH = 946684800; // 2000-01-01 in unix seconds
+  const newest = anchors.reduce((m, x) => (x.memo.seq > m.memo.seq ? x : m));
+  if (typeof newest.date === 'number') {
+    const ageDays = Math.floor((Date.now() / 1000 - (newest.date + RIPPLE_EPOCH)) / 86400);
+    stage('chain tip age', true, `newest anchor (seq ${newest.memo.seq}) is ${ageDays} day(s) old — judge staleness yourself`);
+  }
 
   // 2. chain
   anchors.sort((a, b) => a.memo.seq - b.memo.seq);
@@ -147,7 +161,7 @@ async function main() {
             if (row.configHash && row.configHash !== 'pre-factory' && ['backtest', 'grid'].includes(row.stage)) {
               const regSeq = regSeqByHash.get(row.configHash);
               const fromGenesisImport = a.memo.seq === 0;
-              if (!fromGenesisImport && (regSeq === undefined || regSeq > a.memo.seq)) { orderingOk = false; orderingDetail = `trial for ${row.configHash.slice(0, 6)} at seq ${a.memo.seq} has no earlier registration anchor`; }
+              if (!fromGenesisImport && (regSeq === undefined || regSeq >= a.memo.seq)) { orderingOk = false; orderingDetail = `trial for ${row.configHash.slice(0, 6)} at anchor seq ${a.memo.seq} lacks a STRICTLY EARLIER registration anchor (same-anchor bundling is not commit-before-outcome)`; }
             }
             if (typeof row.trialCountGlobal === 'number') {
               if (row.trialCountGlobal < lastTrialCount) trialSeqOk = false;
@@ -172,7 +186,7 @@ async function main() {
 }
 
 function finish(code, json, label) {
-  out.verdict = code === 0 ? (label ?? 'PASS') : 'FAIL';
+  out.verdict = (code === 0 ? (label ?? 'PASS') : 'FAIL') + (out.unsafe ? ' (UNSAFE ADDRESS — not the pinned trust root)' : '');
   console.log(`\nVERDICT: ${out.verdict}`);
   console.log('\nThis verifies record INTEGRITY + TIMING. It does NOT prove trades were real-money fills;');
   console.log('paper records remain paper, and broker statements remain the ground truth for money moved.');

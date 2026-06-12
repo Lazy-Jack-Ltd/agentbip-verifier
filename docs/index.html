@@ -53,7 +53,6 @@ const witnessLeaves = (nl) => Object.keys(nl).sort().flatMap(p => nl[p]);
 const linesSha256 = (lines) => sha256(lines.map(l => l + '\n').join(''));
 const hexToUtf8 = (hex) => new TextDecoder().decode(new Uint8Array(hex.match(/../g).map(h => parseInt(h, 16))));
 
-const witnessByName = {}; // filename -> Uint8Array bytes
 
 const stageEl = document.getElementById('stages');
 function stage(name, ok, detail, skip) {
@@ -85,7 +84,7 @@ document.getElementById('run').onclick = async () => {
       if (tx.Account !== PIN.address) continue;
       for (const m of (tx.Memos || [])) {
         if ((m.Memo?.MemoType || '').toUpperCase() !== MEMO_TYPE_HEX) continue;
-        try { const memo = JSON.parse(hexToUtf8(m.Memo.MemoData)); if (memo.v === 'agentbip-anchor-v1') anchors.push({ memo, hash: tx.hash || e.hash }); } catch {}
+        try { const memo = JSON.parse(hexToUtf8(m.Memo.MemoData)); if (memo.v === 'agentbip-anchor-v1') { if (e.validated === false) throw new Error('anchor not in a validated ledger'); anchors.push({ memo, hash: tx.hash || e.hash, date: tx.date }); } } catch {}
       }
     }
     if (!stage('Fetch anchors from the XRP Ledger', anchors.length > 0, anchors.length + ' anchor transaction(s)')) return finish(false);
@@ -97,6 +96,8 @@ document.getElementById('run').onclick = async () => {
       else if (anchors[i].memo.prev !== anchors[i - 1].hash) { ok = false; why = 'hash-chain break at ' + i; }
     }
     if (!stage('Anchor chain unbroken (sequence + hash links)', ok, why || ('seq 0–' + (anchors.length - 1)))) return finish(false);
+    { const newest = anchors[anchors.length - 1];
+      if (typeof newest.date === 'number') stage('Chain tip age', true, 'newest anchor is ' + Math.floor((Date.now()/1000 - (newest.date + 946684800)) / 86400) + ' day(s) old — judge staleness yourself'); }
     { const d = document.createElement('div'); d.className = 'stage';
       d.innerHTML = '🔗 ' + anchors.map(a => '<a href="https://livenet.xrpl.org/transactions/' + a.hash + '" target="_blank" rel="noopener">anchor ' + a.memo.seq + ' (' + a.memo.type + ', ' + a.memo.date + ')</a>').join(' · ');
       stageEl.appendChild(d); }
@@ -104,7 +105,6 @@ document.getElementById('run').onclick = async () => {
     stage('Pre-registered strategies committed on-chain', true, regs.length + ' registration(s)' + (regs.length ? ': ' + regs.map(r => '#' + r.memo.hypothesisId + '@' + (r.memo.configHash || '').slice(0, 6)).join(', ') : ' yet'));
     // 3-7. content: dropped files take priority; otherwise AUTO-FETCH from the public witness URL
     const getWitness = async (name) => {
-      if (witnessByName[name]) return witnessByName[name];
       try { const r = await fetch(WITNESS_URL + name); return r.ok ? new Uint8Array(await r.arrayBuffer()) : null; } catch { return null; }
     };
     const replay = {}; let contentOk = true, orderingOk = true, trialSeqOk = true, lastTrial = 0;
@@ -119,7 +119,7 @@ document.getElementById('run').onclick = async () => {
       for (const [path, lines] of Object.entries(w.newLines)) {
         replay[path] = (replay[path] || []).concat(lines);
         if (path.endsWith('trial-registry.jsonl')) for (const line of lines) { try { const row = JSON.parse(line);
-          if (row.configHash && row.configHash !== 'pre-factory' && ['backtest', 'grid'].includes(row.stage) && a.memo.seq > 0) { const rs = regSeq.get(row.configHash); if (rs === undefined || rs > a.memo.seq) orderingOk = false; }
+          if (row.configHash && row.configHash !== 'pre-factory' && ['backtest', 'grid'].includes(row.stage) && a.memo.seq > 0) { const rs = regSeq.get(row.configHash); if (rs === undefined || rs >= a.memo.seq) orderingOk = false; }
           if (typeof row.trialCountGlobal === 'number') { if (row.trialCountGlobal < lastTrial) trialSeqOk = false; lastTrial = Math.max(lastTrial, row.trialCountGlobal); } } catch {} }
       }
       for (const [path, st] of Object.entries(w.files)) {

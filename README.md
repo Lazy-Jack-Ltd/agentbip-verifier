@@ -7,13 +7,16 @@ research record was **(a)** committed to the ledger before outcomes, **(b)** nev
 [bipcircle-verifier](https://github.com/Lazy-Jack-Ltd/bipcircle-verifier).
 
 ```
-npx @lazyjackorg/agentbip-verifier --network testnet --witness-dir ./witnesses
+git clone https://github.com/Lazy-Jack-Ltd/agentbip-verifier
+cd agentbip-verifier
+node bin/agentbip-verify.mjs          # full mainnet check, zero arguments, zero dependencies
 ```
+
+(npm publication is planned; until then clone-and-run is the supported path.)
 
 Zero runtime dependencies (Node 20+). Trust roots (anchor account address, full-history XRPL
 endpoint) are **pinned in source** per release — a social-engineered address cannot produce a
-false PASS. Until the mainnet genesis release pins the address, use
-`--unsafe-address <r...>` (clearly marked: you are trusting the address you supply).
+false PASS. The mainnet address is pinned (v0.1.0+). `--unsafe-address` exists for migration/testnet use and on mainnet additionally requires `--i-accept-unpinned-address`; the verdict line is suffixed `(UNSAFE ADDRESS)`.
 
 ## What a PASS proves / does not prove
 
