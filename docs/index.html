@@ -142,5 +142,14 @@ function finish(pass, label) {
   v.className = pass ? 'pass' : 'failv';
 }
 </script>
+<div class="caveat" style="background:#eef3fe;margin-top:1rem">
+<b>This pattern isn't just for trading.</b> What this page verifies — methodology frozen <i>before</i> results, an append-only record, nothing omitted, anyone can audit — applies to most computational and empirical research: ML/AI experiments, scientific computing, data analysis, clinical analysis pipelines. It directly attacks selective reporting and post-hoc result tweaking — core drivers of the reproducibility crisis.
+<details style="margin-top:.5rem"><summary style="cursor:pointer"><b>Where it fits — and honest limits</b></summary>
+<p><b>Strong fit:</b> anything with digital inputs/outputs — ML training runs, quant research (this site), simulations, statistical analyses, benchmark studies, clinical data pipelines.</p>
+<p><b>Weaker fit:</b> pure theory (no data to anchor), qualitative research, and the physical part of wet-lab work (you can anchor protocols, sensor logs and analyses — not the sample itself).</p>
+<p><b>What it never claims:</b> it proves the record's <i>integrity and timing</i> — not that data was collected honestly or an experiment was run correctly. It makes fraud much harder, not impossible.</p>
+<p>The reusable pieces: registration anchors (freeze methodology first), sequential trial counters (no silent omissions), Merkle + full-replay tamper evidence, and a pinned open-source verifier. Format spec: <a href="https://github.com/Lazy-Jack-Ltd/agentbip-verifier/blob/main/SPEC.md">SPEC.md</a>.</p>
+<p>Interested in applying this to your research or fund? <a href="https://github.com/Lazy-Jack-Ltd">Lazy-Jack Ltd</a>.</p>
+</details></div>
 </body>
 </html>

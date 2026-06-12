@@ -43,3 +43,32 @@ granted the witness exports. Witness files are published within 24h of each anch
 
 Spec: `agentbip-anchor-v1` (see the AgentBip repo, `Documentation/xrpl-anchor-spec-2026-06-12.md`).
 Exit codes: `0` PASS · `1` FAIL · `2` invocation error. `--json` for machine-readable output.
+
+
+## Beyond trading: generalizing the pattern
+
+The discipline this verifier enforces is not specific to trading. It applies to most
+computational and empirical research:
+
+| Domain | Fit | Why |
+|---|---|---|
+| ML / AI experiments | Excellent | configs, datasets, training runs, eval metrics — all digital and hashable |
+| Quant finance | Excellent | this repo |
+| Scientific computing / simulations | Excellent | reproducible pipelines, clear inputs/outputs |
+| Data analysis / statistics | Very good | scripts, datasets, intermediate results |
+| Clinical / preclinical analysis | Good | protocols, raw-data hashes, analysis logs (high regulatory value) |
+| Pure theory / qualitative / artistic | Low | little empirical record to anchor |
+| Wet lab | Medium | protocols + sensor logs + analyses anchor; the physical sample does not |
+
+What transfers: **registration anchors** (freeze methodology before running), **sequential
+trial counters** (omissions are detectable), **Merkle + full-replay tamper evidence**, and a
+**pinned open-source verifier**. Together these attack selective reporting, post-hoc result
+tweaking, and "I ran it yesterday" claims — core mechanics of the reproducibility crisis.
+
+The honest boundary, always: this proves the **integrity and timing of the record** — never
+that data was collected honestly or that an experiment was run correctly. It makes certain
+fraud much harder; it is not a complete solution to bad science.
+
+The wire format (`SPEC.md`) is deliberately small; adapting it to another domain is mostly a
+matter of choosing which append-only files constitute the record. Interested in applying it —
+research-anchor for science, clinical trials, AI evals? Contact [Lazy-Jack Ltd](https://github.com/Lazy-Jack-Ltd).
