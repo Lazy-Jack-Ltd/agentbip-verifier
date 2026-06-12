@@ -32,6 +32,7 @@ const PINNED = {
   // s2.ripple.com is a FULL-HISTORY public cluster — required: pruned nodes can hide old anchors.
   mainnet: { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://s2.ripple.com:51234' }, // PRE-PINNED 2026-06-12 BEFORE genesis (G1: address committed before any outcome)
 };
+const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witnesses/'; // public, CORS GET, create-only immutable
 const MEMO_TYPE_HEX = Buffer.from('agentbip/anchor/v1', 'utf8').toString('hex').toUpperCase();
 const VERSION = 'agentbip-anchor-v1';
 
@@ -123,20 +124,27 @@ async function main() {
   const regs = anchors.filter((a) => a.memo.type === 'registration');
   stage('registration anchors (configHash committed on-chain)', true, `${regs.length} registration(s): ${regs.map((r) => `#${r.memo.hypothesisId}@${(r.memo.configHash ?? '').slice(0, 6)}`).join(', ') || 'none yet'}`);
 
-  // 3-5. witness content checks (only with witness access)
-  if (!witnessDir) {
-    stage('content verification', true, 'SKIPPED — no --witness-dir; chain-level PASS only (content-level unverified)');
-    return finish(0, json, 'CHAIN-LEVEL PASS (content unverified without witness access)');
+  // 3-5. witness content checks. Default: fetch witnesses from the pinned PUBLIC bucket (spec G2 —
+  // published within 24h of each anchor; a missing public witness is a completeness FAILURE, not a
+  // shrug). --witness-dir verifies local files instead; --chain-only skips content checks.
+  if (argv.includes('--chain-only')) {
+    stage('content verification', true, 'SKIPPED (--chain-only)');
+    return finish(0, json, 'CHAIN-LEVEL PASS (content checks skipped by flag)');
   }
+  const getWitness = async (name) => {
+    if (witnessDir) { const p = join(witnessDir, name); return existsSync(p) ? readFileSync(p) : null; }
+    try { const r = await fetch(WITNESS_URL + name); return r.ok ? Buffer.from(await r.arrayBuffer()) : null; } catch { return null; }
+  };
   const replay = {}; // path -> array of lines accumulated across witnesses
   let contentOk = true;
   const regSeqByHash = new Map(regs.map((r) => [r.memo.configHash, r.memo.seq]));
   let orderingOk = true; let orderingDetail = '';
   let lastTrialCount = 0; let trialSeqOk = true;
   for (const a of anchors) {
-    const wp = join(witnessDir, a.memo.witness.path.split('/').pop());
-    if (!existsSync(wp)) { contentOk = stage(`witness seq ${a.memo.seq}`, false, `missing ${wp}`) && contentOk; continue; }
-    const bytes = readFileSync(wp, 'utf8');
+    const name = a.memo.witness.path.split('/').pop();
+    const raw = await getWitness(name);
+    if (raw === null) { contentOk = stage(`witness seq ${a.memo.seq}`, false, `${name} not available ${witnessDir ? 'in --witness-dir' : 'at the public witness URL (completeness failure)'}`) && contentOk; continue; }
+    const bytes = raw.toString('utf8');
     if (sha256hex(bytes) !== a.memo.witness.sha256) { contentOk = stage(`witness seq ${a.memo.seq} sha256`, false, 'hash mismatch') && contentOk; continue; }
     const w = JSON.parse(bytes);
     if (merkleRoot(witnessLeaves(w.newLines)) !== a.memo.root) { contentOk = stage(`witness seq ${a.memo.seq} merkle`, false, 'root mismatch') && contentOk; continue; }

@@ -30,9 +30,10 @@ Announced before genesis · cross-announced by <a href="https://github.com/Lazy-
 <div id="stages"></div>
 <div id="verdict"></div>
 <div class="caveat">A PASS proves record <b>integrity + timing</b>: each entry existed at its ledger timestamp, and nothing was rewritten or omitted since. It does <b>not</b> prove trades were real-money fills — paper records remain paper, and broker statements remain the ground truth for money moved.</div>
-<div id="drop">Optional full check: drop the AgentBip <i>witness files</i> here (or <input type="file" id="files" multiple>) then press Verify again — your browser will recompute every hash and replay the whole record from genesis.</div>
+<div id="drop">Witnesses are fetched automatically from the public archive — the button above runs the FULL check. To verify privately-shared files instead, drop them here (or <input type="file" id="files" multiple>) then press Verify again — your browser will recompute every hash and replay the whole record from genesis.</div>
 <script>
 const PIN = { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://xrplcluster.com' }; // CORS-enabled full-history cluster
+const WITNESS_URL = 'https://storage.googleapis.com/agentbip-anchors-public/witnesses/'; // public witnesses (spec G2)
 const MEMO_TYPE_HEX = [...'agentbip/anchor/v1'].map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase();
 const enc = new TextEncoder();
 const toHex = (buf) => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -103,17 +104,17 @@ document.getElementById('run').onclick = async () => {
     if (!stage('Anchor chain unbroken (sequence + hash links)', ok, why || ('seq 0–' + (anchors.length - 1)))) return finish(false);
     const regs = anchors.filter(a => a.memo.type === 'registration');
     stage('Pre-registered strategies committed on-chain', true, regs.length + ' registration(s)' + (regs.length ? ': ' + regs.map(r => '#' + r.memo.hypothesisId + '@' + (r.memo.configHash || '').slice(0, 6)).join(', ') : ' yet'));
-    // 3-7. content (witnesses)
-    if (Object.keys(witnessByName).length === 0) {
-      stage('Content verification', true, 'skipped — no witness files loaded (chain-level check only)', true);
-      return finish(true, 'CHAIN-LEVEL PASS (content unverified without witness files)');
-    }
+    // 3-7. content: dropped files take priority; otherwise AUTO-FETCH from the public witness URL
+    const getWitness = async (name) => {
+      if (witnessByName[name]) return witnessByName[name];
+      try { const r = await fetch(WITNESS_URL + name); return r.ok ? new Uint8Array(await r.arrayBuffer()) : null; } catch { return null; }
+    };
     const replay = {}; let contentOk = true, orderingOk = true, trialSeqOk = true, lastTrial = 0;
     const regSeq = new Map(regs.map(r => [r.memo.configHash, r.memo.seq]));
     for (const a of anchors) {
       const name = (a.memo.witness.path || '').split('/').pop();
-      const bytes = witnessByName[name];
-      if (!bytes) { contentOk = stage('Witness ' + a.memo.seq + ' (' + name + ')', false, 'file not provided') && contentOk; continue; }
+      const bytes = await getWitness(name);
+      if (!bytes) { contentOk = stage('Witness ' + a.memo.seq + ' (' + name + ')', false, 'not available at the public witness URL (completeness failure)') && contentOk; continue; }
       if (await sha256(bytes) !== a.memo.witness.sha256) { contentOk = stage('Witness ' + a.memo.seq + ' fingerprint', false, 'HASH MISMATCH — file differs from what was anchored') && contentOk; continue; }
       const w = JSON.parse(new TextDecoder().decode(bytes));
       if (await merkleRoot(witnessLeaves(w.newLines)) !== a.memo.root) { contentOk = stage('Witness ' + a.memo.seq + ' merkle root', false, 'MISMATCH') && contentOk; continue; }
