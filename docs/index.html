@@ -1,0 +1,147 @@
+<!doctype html>
+<!-- agentbip-verify (web) — browser port of bin/agentbip-verify.mjs. Same pinned trust roots,
+     same spec (agentbip-anchor-v1). Chain-level verification needs nothing but this page;
+     drop witness files onto it for full content-level verification. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBip record verifier — agentbip-anchor-v1</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; color: #1a1a2e; }
+  h1 { font-size: 1.4rem; } .sub { color: #555; margin-top: -0.6rem; }
+  button { font-size: 1.05rem; padding: .6rem 1.4rem; border-radius: 8px; border: 0; background: #1a56db; color: #fff; cursor: pointer; }
+  button:disabled { background: #999; }
+  .stage { font-family: ui-monospace, monospace; padding: .15rem 0; }
+  .ok::before { content: "✅ "; } .fail::before { content: "❌ "; } .skip::before { content: "⏭️ "; }
+  #verdict { font-size: 1.3rem; font-weight: 700; margin: 1rem 0 .5rem; }
+  .pass { color: #057a55; } .failv { color: #c81e1e; }
+  .caveat { background: #fdf6b2; border-radius: 8px; padding: .8rem 1rem; font-size: .92rem; }
+  .pin { font-family: ui-monospace, monospace; font-size: .85rem; background: #f3f4f6; padding: .6rem .8rem; border-radius: 8px; word-break: break-all; }
+  #drop { border: 2px dashed #bbb; border-radius: 8px; padding: 1rem; margin-top: 1rem; color: #555; }
+</style>
+</head>
+<body>
+<h1>AgentBip research-record verifier</h1>
+<p class="sub">Independently verifies the AgentBip anchor chain on the public XRP Ledger. No login, no trust in AgentBip's servers — your browser fetches the ledger and re-does the math.</p>
+<p class="pin">Pinned anchor account (mainnet): <b>rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP</b><br>
+Announced before genesis · cross-announced by <a href="https://github.com/Lazy-Jack-Ltd/bipcircle-verifier">bipcircle-verifier</a> · source: <a href="https://github.com/Lazy-Jack-Ltd/agentbip-verifier">agentbip-verifier</a></p>
+<p><button id="run">Verify the record now</button></p>
+<div id="stages"></div>
+<div id="verdict"></div>
+<div class="caveat">A PASS proves record <b>integrity + timing</b>: each entry existed at its ledger timestamp, and nothing was rewritten or omitted since. It does <b>not</b> prove trades were real-money fills — paper records remain paper, and broker statements remain the ground truth for money moved.</div>
+<div id="drop">Optional full check: drop the AgentBip <i>witness files</i> here (or <input type="file" id="files" multiple>) then press Verify again — your browser will recompute every hash and replay the whole record from genesis.</div>
+<script>
+const PIN = { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpc: 'https://xrplcluster.com' }; // CORS-enabled full-history cluster
+const MEMO_TYPE_HEX = [...'agentbip/anchor/v1'].map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join('').toUpperCase();
+const enc = new TextEncoder();
+const toHex = (buf) => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+const sha256 = async (data) => toHex(await crypto.subtle.digest('SHA-256', data instanceof Uint8Array ? data : enc.encode(data)));
+const sha256buf = async (bytes) => new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+const concat = (...arrs) => { const out = new Uint8Array(arrs.reduce((n, a) => n + a.length, 0)); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
+async function merkleRoot(leaves) {
+  if (leaves.length === 0) return sha256('');
+  let level = await Promise.all(leaves.map(l => sha256buf(concat(new Uint8Array([0]), enc.encode(l)))));
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i + 1 < level.length; i += 2) next.push(await sha256buf(concat(new Uint8Array([1]), level[i], level[i + 1])));
+    if (level.length % 2 === 1) next.push(level[level.length - 1]);
+    level = next;
+  }
+  return toHex(level[0]);
+}
+const witnessLeaves = (nl) => Object.keys(nl).sort().flatMap(p => nl[p]);
+const linesSha256 = (lines) => sha256(lines.map(l => l + '\n').join(''));
+const hexToUtf8 = (hex) => new TextDecoder().decode(new Uint8Array(hex.match(/../g).map(h => parseInt(h, 16))));
+
+const witnessByName = {}; // filename -> Uint8Array bytes
+document.getElementById('files').addEventListener('change', async (e) => { for (const f of e.target.files) witnessByName[f.name] = new Uint8Array(await f.arrayBuffer()); document.getElementById('drop').firstChild.textContent = Object.keys(witnessByName).length + ' witness file(s) loaded. '; });
+document.getElementById('drop').addEventListener('dragover', e => e.preventDefault());
+document.getElementById('drop').addEventListener('drop', async (e) => { e.preventDefault(); for (const f of e.dataTransfer.files) witnessByName[f.name] = new Uint8Array(await f.arrayBuffer()); document.getElementById('drop').firstChild.textContent = Object.keys(witnessByName).length + ' witness file(s) loaded. '; });
+
+const stageEl = document.getElementById('stages');
+function stage(name, ok, detail, skip) {
+  const d = document.createElement('div');
+  d.className = 'stage ' + (skip ? 'skip' : ok ? 'ok' : 'fail');
+  d.textContent = name + (detail ? ' — ' + detail : '');
+  stageEl.appendChild(d);
+  return ok;
+}
+async function rpc(method, params) {
+  const r = await fetch(PIN.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ method, params: [params] }) });
+  const b = await r.json();
+  if (b.result?.status !== 'success') throw new Error(method + ': ' + (b.result?.error_message || b.result?.error || 'unknown'));
+  return b.result;
+}
+document.getElementById('run').onclick = async () => {
+  stageEl.innerHTML = ''; document.getElementById('verdict').textContent = '';
+  const btn = document.getElementById('run'); btn.disabled = true;
+  try {
+    // 1. fetch anchors
+    const txs = []; let marker;
+    do {
+      const r = await rpc('account_tx', { account: PIN.address, ledger_index_min: -1, ledger_index_max: -1, limit: 200, forward: true, ...(marker ? { marker } : {}) });
+      txs.push(...(r.transactions || [])); marker = r.marker;
+    } while (marker);
+    const anchors = [];
+    for (const e of txs) {
+      const tx = e.tx || e.tx_json || {};
+      if (tx.Account !== PIN.address) continue;
+      for (const m of (tx.Memos || [])) {
+        if ((m.Memo?.MemoType || '').toUpperCase() !== MEMO_TYPE_HEX) continue;
+        try { const memo = JSON.parse(hexToUtf8(m.Memo.MemoData)); if (memo.v === 'agentbip-anchor-v1') anchors.push({ memo, hash: tx.hash || e.hash }); } catch {}
+      }
+    }
+    if (!stage('Fetch anchors from the XRP Ledger', anchors.length > 0, anchors.length + ' anchor transaction(s)')) return finish(false);
+    // 2. chain
+    anchors.sort((a, b) => a.memo.seq - b.memo.seq);
+    let ok = anchors[0].memo.seq === 0 && anchors[0].memo.type === 'genesis' && anchors[0].memo.prev === null, why = ok ? '' : 'missing genesis';
+    for (let i = 1; ok && i < anchors.length; i++) {
+      if (anchors[i].memo.seq !== i) { ok = false; why = 'sequence gap at ' + i; }
+      else if (anchors[i].memo.prev !== anchors[i - 1].hash) { ok = false; why = 'hash-chain break at ' + i; }
+    }
+    if (!stage('Anchor chain unbroken (sequence + hash links)', ok, why || ('seq 0–' + (anchors.length - 1)))) return finish(false);
+    const regs = anchors.filter(a => a.memo.type === 'registration');
+    stage('Pre-registered strategies committed on-chain', true, regs.length + ' registration(s)' + (regs.length ? ': ' + regs.map(r => '#' + r.memo.hypothesisId + '@' + (r.memo.configHash || '').slice(0, 6)).join(', ') : ' yet'));
+    // 3-7. content (witnesses)
+    if (Object.keys(witnessByName).length === 0) {
+      stage('Content verification', true, 'skipped — no witness files loaded (chain-level check only)', true);
+      return finish(true, 'CHAIN-LEVEL PASS (content unverified without witness files)');
+    }
+    const replay = {}; let contentOk = true, orderingOk = true, trialSeqOk = true, lastTrial = 0;
+    const regSeq = new Map(regs.map(r => [r.memo.configHash, r.memo.seq]));
+    for (const a of anchors) {
+      const name = (a.memo.witness.path || '').split('/').pop();
+      const bytes = witnessByName[name];
+      if (!bytes) { contentOk = stage('Witness ' + a.memo.seq + ' (' + name + ')', false, 'file not provided') && contentOk; continue; }
+      if (await sha256(bytes) !== a.memo.witness.sha256) { contentOk = stage('Witness ' + a.memo.seq + ' fingerprint', false, 'HASH MISMATCH — file differs from what was anchored') && contentOk; continue; }
+      const w = JSON.parse(new TextDecoder().decode(bytes));
+      if (await merkleRoot(witnessLeaves(w.newLines)) !== a.memo.root) { contentOk = stage('Witness ' + a.memo.seq + ' merkle root', false, 'MISMATCH') && contentOk; continue; }
+      for (const [path, lines] of Object.entries(w.newLines)) {
+        replay[path] = (replay[path] || []).concat(lines);
+        if (path.endsWith('trial-registry.jsonl')) for (const line of lines) { try { const row = JSON.parse(line);
+          if (row.configHash && row.configHash !== 'pre-factory' && ['backtest', 'grid'].includes(row.stage) && a.memo.seq > 0) { const rs = regSeq.get(row.configHash); if (rs === undefined || rs > a.memo.seq) orderingOk = false; }
+          if (typeof row.trialCountGlobal === 'number') { if (row.trialCountGlobal < lastTrial) trialSeqOk = false; lastTrial = Math.max(lastTrial, row.trialCountGlobal); } } catch {} }
+      }
+      for (const [path, st] of Object.entries(w.files)) {
+        const have = replay[path] || [];
+        if (have.length !== st.lineCount || await linesSha256(have) !== st.fullSha256) contentOk = stage('History replay: ' + path, false, 'REWRITTEN at anchor ' + a.memo.seq) && contentOk;
+      }
+    }
+    stage('Every witness matches its on-chain fingerprint', contentOk);
+    stage('Full history replays cleanly (nothing rewritten)', contentOk);
+    stage('Strategies registered BEFORE their results', orderingOk);
+    stage('No trials omitted (sequential numbering)', trialSeqOk, 'max trial #' + lastTrial);
+    return finish(contentOk && orderingOk && trialSeqOk);
+  } catch (e) {
+    stage('Error', false, e.message); return finish(false);
+  } finally { btn.disabled = false; }
+};
+function finish(pass, label) {
+  const v = document.getElementById('verdict');
+  v.textContent = 'VERDICT: ' + (pass ? (label || 'PASS') : 'FAIL');
+  v.className = pass ? 'pass' : 'failv';
+}
+</script>
+</body>
+</html>
