@@ -28,7 +28,7 @@ import { join } from 'node:path';
 const PINNED = {
   // TESTNET pilot chain (2026-06). Witnesses NOT publicly archived (pilot) — use --witness-dir or --chain-only.
   testnet: { address: 'rwWsxUpjEutLmvsG9VUtpS2EksVk8MGeJd', rpcs: ['https://s.altnet.rippletest.net:51234'] },
-  // TWO independent FULL-HISTORY endpoints, cross-checkedevery run (split-view mitigation): a single
+  // TWO independent FULL-HISTORY endpoints, cross-checked every run (split-view mitigation): a single
   // lying/pruned RPC could serve a stale prefix 0..K and continuity would still pass.
   mainnet: { address: 'rwdFhg97kMBisKCYcP7fuah4vYsYJdJhKP', rpcs: ['https://s2.ripple.com:51234', 'https://xrplcluster.com'] }, // PRE-PINNED 2026-06-12 BEFORE genesis
 };
@@ -60,10 +60,13 @@ async function fetchAnchors(rpcUrl, address) {
     if (tx.Account !== address) continue;
     for (const m of tx.Memos ?? []) {
       if ((m.Memo?.MemoType ?? '').toUpperCase() !== MEMO_TYPE_HEX) continue;
-      try {
-        const memo = JSON.parse(Buffer.from(m.Memo.MemoData, 'hex').toString('utf8'));
-        if (memo.v === VERSION) { if (entry.validated === false) throw new Error(`anchor ${tx.hash ?? entry.hash} is NOT in a validated ledger`); anchors.push({ memo, hash: tx.hash ?? entry.hash, date: tx.date }); }
-      } catch { /* not ours */ }
+      let memo;
+      try { memo = JSON.parse(Buffer.from(m.Memo.MemoData, 'hex').toString('utf8')); } catch { continue; /* not ours */ }
+      if (memo.v !== VERSION) continue;
+      // validated check OUTSIDE the try — a tentative/unvalidated ledger result must fail loudly,
+      // never get swallowed by the "not ours" catch above.
+      if (entry.validated === false) throw new Error(`anchor ${tx.hash ?? entry.hash} is NOT in a validated ledger`);
+      anchors.push({ memo, hash: tx.hash ?? entry.hash, date: tx.date });
     }
   }
   return anchors;

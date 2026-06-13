@@ -84,7 +84,12 @@ document.getElementById('run').onclick = async () => {
       if (tx.Account !== PIN.address) continue;
       for (const m of (tx.Memos || [])) {
         if ((m.Memo?.MemoType || '').toUpperCase() !== MEMO_TYPE_HEX) continue;
-        try { const memo = JSON.parse(hexToUtf8(m.Memo.MemoData)); if (memo.v === 'agentbip-anchor-v1') { if (e.validated === false) throw new Error('anchor not in a validated ledger'); anchors.push({ memo, hash: tx.hash || e.hash, date: tx.date }); } } catch {}
+        let memo;
+        try { memo = JSON.parse(hexToUtf8(m.Memo.MemoData)); } catch { continue; }
+        if (memo.v !== 'agentbip-anchor-v1') continue;
+        // validated check OUTSIDE the try — unvalidated ledger result must fail loudly, not be swallowed
+        if (e.validated === false) throw new Error('anchor ' + (tx.hash || e.hash) + ' is not in a validated ledger');
+        anchors.push({ memo, hash: tx.hash || e.hash, date: tx.date });
       }
     }
     if (!stage('Fetch anchors from the XRP Ledger', anchors.length > 0, anchors.length + ' anchor transaction(s)')) return finish(false);
